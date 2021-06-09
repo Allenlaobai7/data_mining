@@ -1,0 +1,113 @@
+#http://scikit-learn.org/stable/auto_examples/model_selection/plot_confusion_matrix.html#sphx-glr-auto-examples-model-selection-plot-confusion-matrix-py
+
+def plot_confusion_matrix(cm, classes,
+                          normalize=False,
+                          title='Confusion matrix',
+                          cmap=plt.cm.Blues):
+    """
+    This function prints and plots the confusion matrix.
+    Normalization can be applied by setting `normalize=True`.
+    """
+    if normalize:
+        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        print("Normalized confusion matrix")
+    else:
+        print('Confusion matrix, without normalization')
+
+    print(cm)
+
+    plt.imshow(cm, interpolation='nearest', cmap=cmap)
+    plt.title(title)
+    plt.colorbar()
+    tick_marks = np.arange(len(classes))
+    plt.xticks(tick_marks, classes, rotation=45)
+    plt.yticks(tick_marks, classes)
+
+    fmt = '.2f' if normalize else 'd'
+    thresh = cm.max() / 2.
+    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+        plt.text(j, i, format(cm[i, j], fmt),
+                 horizontalalignment="center",
+                 color="white" if cm[i, j] > thresh else "black")
+
+    plt.tight_layout()
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
+
+# Plot non-normalized confusion matrix
+plt.figure()
+plot_confusion_matrix(cnf_matrix, classes=class_names,
+                      title='Confusion matrix, without normalization')
+
+# Plot normalized confusion matrix
+plt.figure()
+plot_confusion_matrix(cnf_matrix, classes=class_names, normalize=True,
+                      title='Normalized confusion matrix')
+
+plt.show()
+
+
+
+
+
+####################################################################################
+## from https://stackoverflow.com/questions/28200786/how-to-plot-scikit-learn-classification-report?noredirect=1&lq=1
+def plot_classification_report(cr, title='Classification report ', with_avg_total=False, cmap=plt.cm.Blues):
+
+    lines = cr.split('\n')
+
+    classes = []
+    plotMat = []
+    for line in lines[2 : (len(lines) - 3)]:
+        #print(line)
+        t = line.split()
+        # print(t)
+        classes.append(t[0])
+        v = [float(x) for x in t[1: len(t) - 1]]
+        print(v)
+        plotMat.append(v)
+
+    if with_avg_total:
+        aveTotal = lines[len(lines) - 1].split()
+        classes.append('avg/total')
+        vAveTotal = [float(x) for x in t[1:len(aveTotal) - 1]]
+        plotMat.append(vAveTotal)
+
+
+    plt.imshow(plotMat, interpolation='nearest', cmap=cmap)
+    plt.title(title)
+    plt.colorbar()
+    x_tick_marks = np.arange(3)
+    y_tick_marks = np.arange(len(classes))
+    plt.xticks(x_tick_marks, ['precision', 'recall', 'f1-score'], rotation=45)
+    plt.yticks(y_tick_marks, classes)
+    plt.tight_layout()
+    plt.ylabel('Classes')
+    plt.xlabel('Measures')
+    
+plot_classification_report(classification_report(y_test, NB_pred, labels=['ham', 'spam']))
+
+
+### study roc_auc
+from sklearn.metrics import roc_auc_score
+import scikitplot as skplt
+import matplotlib.pyplot as plt
+
+def compare_metric(tp,fp,fn,tn):
+    t = [1] * tp + [0] * (fp + tn) + [1] * fn
+    pred = [1] * (tp + fp) + [0] * (tn + fn)
+    prec = tp/(tp+fp)
+    rec = tp/(tp+fn)
+    f1 = 2 * prec * rec /(prec + rec)
+    print('prec', round(prec,3), 'rec', round(rec,3), 'f1', round(f1,3), 'roc', round(roc_auc_score(t, pred),3))
+    return t, pred
+
+tp = 30
+fp = 50
+fn = 50-tp
+tn = 5000-tp-fp-fn
+t, p = compare_metric(tp, fp, fn, tn)
+
+p = [[1-i,i] for i in p]
+skplt.metrics.plot_roc_curve(t, p)
+plt.show()

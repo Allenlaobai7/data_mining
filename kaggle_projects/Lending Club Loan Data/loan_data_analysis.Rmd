@@ -1,0 +1,408 @@
+---
+title: "loan_data_analysis"
+author: "Allen"
+date: "12/04/2017"
+output: word_document
+---
+
+# Lending Club Loan Data
+# https://www.kaggle.com/wendykan/lending-club-loan-data
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load data and examine the variables
+
+```{r read table, echo=TRUE}
+setwd("/Users/Allen/Desktop/data analytics")
+X<-read.csv("loan.csv",header = TRUE, sep = ",")
+str(X)
+```
+
+Transform variables
+date variables: "earliest_cr_line","last_credit_pull_d"
+```{r, echo=TRUE}
+#earliest_cr_line:
+#change to the number of months to 2016-01: the approximate collection date of the dataset
+library(zoo)
+
+#create a new variable representing the number of month from the earliest_cr_line date
+date_of_collection = as.Date("2016-01-01")
+
+X$months_from_earliest_cr_line = floor(as.numeric(difftime(
+  date_of_collection,
+  as.Date(as.yearmon(X$earliest_cr_line, "%b-%Y")),
+  units = "weeks"
+) / 4))
+
+#last_credit_pull_d
+X$months_from_last_credit_pull_d = floor(as.numeric(difftime(
+  date_of_collection,
+  as.Date(as.yearmon(X$last_credit_pull_d, "%b-%Y")),
+  units = "weeks"
+) / 4))
+```
+
+The date variables are converted to number of months, which may contribute to the model if we treat these variables as numerical input. For "Issued date"", "last_pymnt_date"" and "next_pymnt_date", I will most likely won't include them in the model(I will explain later), so no new variables are created. 
+
+zip_code:
+The values all in the format of "number+XX". I will remove the homogenous "XX" and extract the first three letters. This variable is related to state, we may remove it later if it is not important.
+```{r, echo=TRUE}
+X$zip_code <- as.factor(gsub("\\D", "", as.character(X$zip_code)))
+```
+
+examine the response variable "loan_status":
+```{r, echo=TRUE}
+summary(X$loan_status)
+library(DescTools)
+Desc(X$loan_status, main = "Loan_status distribution", plotit = 1)
+```
+
+```{r, echo=TRUE, warning=FALSE}
+#examine grade
+Desc(X$grade, main = "grade distribution", plotit = 1)
+#try to find the correlation between loan_status and grade
+library(gmodels)
+loan_grade<-CrossTable(X$loan_status,X$grade,chisq = TRUE)
+```
+The code returns a warning message which indicates that Chi-squared approximation may be incorrect.
+I suspect that it may be because some data have small counts,so I tried to combine data.
+
+```{r, echo=TRUE, warning=FALSE}
+#Here I assume that these two status are the same as "Charged Off" and "Fully Paid" respectively
+X$loan_status[X$loan_status == 'Does not meet the credit policy. Status:Charged Off'] <-
+  'Charged Off'
+X$loan_status[X$loan_status == 'Does not meet the credit policy. Status:Fully Paid'] <-
+  'Fully Paid'
+
+#drop these two factors
+X$loan_status=factor(X$loan_status)
+
+#now examine "loan_status" again
+Desc(X$loan_status, main = "Loan_status distribution", plotit = 1)
+loan_grade<-CrossTable(X$loan_status,X$grade,chisq = TRUE)
+```
+p value = 0, which does not correponds to our expectation. I realize that chi-square test may not be a good way to explore the correaltion between the variables, so I will use visualisation instead. 
+
+variable visualisation
+
+```{r, echo=TRUE}
+#loan_status with grade
+library(ggplot2)
+ggplot(X, aes(loan_status, ..count..)) + geom_bar(aes(fill = grade), position = "dodge")
+```
+
+```{r, echo=TRUE}
+#loan_status with sub_grade
+ggplot(X, aes(loan_status, ..count..)) + geom_bar(aes(fill = sub_grade), position = "dodge")
+```
+The result shows that both grade and sub_grade affects the possibility of a loan being in the charged off status. 
+However, it is difficult to visualize since there are too many status, so I decided to group "loan_status" into "ongoing"", "paid"" and "bad_status".
+
+```{r, echo=TRUE}
+on_going = c("Current","Issued","In Grace Period")
+paid = ("Fully Paid")
+X$loan_status = ifelse(X$loan_status %in% paid,"Good",
+                               ifelse(X$loan_status %in% on_going,"On going","Bad"))
+#remove unwanted levels
+X$loan_status = factor(X$loan_status)
+
+#visualize status by grade and sub_grade again
+ggplot(X,aes(grade,fill=loan_status))+geom_bar(position = "fill")
+```
+
+```{r, echo=TRUE}
+ggplot(X,aes(sub_grade,fill=loan_status))+geom_bar(position = "fill")
+```
+the plot clearly shows that bad status increases when grading increase alphabetically. 
+We then use the similar method to examine other variables.
+
+delinq_2yrs:
+```{r, echo=TRUE}
+X$delinq_2yrs<-as.factor(X$delinq_2yrs)
+ggplot(X,aes(delinq_2yrs,fill=loan_status))+geom_bar(position = "fill")
+```
+from the plot we can see large proportion of bad status for 21 and 22.
+
+```{r, echo=TRUE}
+summary(X$delinq_2yrs)
+```
+the summary shows that there are too many classes, so I group the small-count classes into one class. Sum all >10 to one class.
+
+```{r, echo=TRUE, warning=FALSE}
+levels(X$delinq_2yrs)<-c(levels(X$delinq_2yrs),">10")
+X$delinq_2yrs[as.numeric(X$delinq_2yrs) > 10]<- '>10'
+
+#remove unwanted levels
+X$delinq_2yrs=factor(X$delinq_2yrs)
+
+ggplot(X,aes(delinq_2yrs,fill=loan_status))+geom_bar(position = "fill")
+loan_grade<-CrossTable(X$loan_status,X$delinq_2yrs,chisq = TRUE)
+```
+both the ggplot and the chisq test shows that it is not an important feature. However, we only only exclude this from the final model after exmaming its importance during the stage of model building.
+
+```{r, echo=TRUE}
+#examine application type: individual and joint
+ggplot(X,aes(application_type,fill=loan_status))+geom_bar(position = "fill")
+```
+individual has much more proportion of bad status,may be because many joint loans are not finished.
+
+```{r, echo=TRUE}
+#term 
+ggplot(X,aes(term,fill=loan_status))+geom_bar(position = "fill")
+
+```
+long term loans has more proportion of bad status.
+
+```{r, echo=TRUE}
+#home_ownership
+ggplot(X,aes(home_ownership,fill=loan_status))+geom_bar(position = "fill")
+```
+none or "others" has more proportion of bad status, but also more good loans
+
+```{r, echo=TRUE}
+#verification
+ggplot(X,aes(verification_status,fill=loan_status))+geom_bar(position = "fill")
+```
+those who are verified have more proportion of bad status instead. It may suggest that this variable is not an good indicator of loan_status.
+
+```{r, echo=TRUE}
+#payment plan
+ggplot(X,aes(pymnt_plan,fill=loan_status))+geom_bar(position = "fill")
+```
+half of those having plan are actually in bad status. However, the total count is 10 which is too small to consider. 
+
+```{r, echo=TRUE}
+#purpose
+ggplot(X,aes(purpose,fill=loan_status))+geom_bar(position = "fill")
+```
+educational, small_business have much higher rates of bad status than other purposes.
+
+```{r, echo=TRUE}
+ggplot(X,aes(addr_state,fill=loan_status))+geom_bar(position = "fill")
+```
+ME,ND,NE has low rates of bad status. IA has high rates but there are only 14 counts in total. This variable seems significant.
+
+```{r, echo=TRUE}
+ggplot(X,aes(initial_list_status,fill=loan_status))+geom_bar(position = "fill")
+```
+f has high rates of bad status. but w also have more ongoing loans.
+
+continuous variables and loan_status
+```{r, echo=TRUE}
+#dti seems to be an important data based on explanation from dictionary
+ggplot(X, aes(dti))+geom_density(bw=0.05)+xlim(c(0,50))
+box_plane = ggplot(X, aes(loan_status,dti))+ylim(c(0,250))
+box_plane + geom_boxplot(aes(fill = dti)) +
+  labs(title = "loan_status by dti",
+       x = "loan_status",
+       y = "dti")
+```
+the result shows that dti is lower for good status, which corresponds to our prediction,
+indicates that dti is an important feature. 
+
+explore correlation among continuous variables
+```{r, echo=TRUE}
+#construct the correlation matrix for some variables
+cormat = cor (X[, c("loan_amnt","funded_amnt", "funded_amnt_inv", "int_rate","installment", "dti", "annual_inc","revol_bal",
+                    "revol_util", "total_pymnt","total_pymnt_inv")])
+
+#Remove self correlations
+diag (cormat) = 0 
+cormat
+
+get_upper_tri <- function(cormat){
+  cormat[lower.tri(cormat)]<- NA
+  return(cormat)
+}
+upper_tri <- get_upper_tri(cormat)
+
+library(reshape2)
+melted_cormat <- melt(upper_tri, na.rm = TRUE)
+
+# plot correlation heatmap
+ggplot(data = melted_cormat, aes(Var2, Var1, fill = value))+
+  geom_tile(color = "white")+
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name="Pearson\nCorrelation") +
+  theme_minimal()+ 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+                                   size = 12, hjust = 1))+
+  coord_fixed()
+```
+strangely, annual_inc and revol_util have no correlation with other variables.
+loan_amnt, funded_amnt and funded_amnt_inv have high correlation as expected, it will be reasonable to choose two out of three or one out of three.
+
+Dealing with missing data
+
+there are many missing data in this dataset. I use summary() to explore those variables, and try to impute one variable using the Mice package. 
+```{r, echo=TRUE}
+#incomplete data related to behaviours of the borrower
+sum(is.na(X$revol_util))
+#502 NAs
+#impute the number of revol_util
+# Set a random seed
+set.seed(129)
+
+# Perform mice imputation, excluding certain less-than-useful variables:
+library(mice)
+mice_mod <- mice(X[, names(X) %in% c("revol_bal","revol_util")], method='pmm')
+
+#at first I tried the whole dataset and method=rf, but it takes too long, so I use pmm instead
+mice_output <- complete(mice_mod)
+#compare the output with original age data
+# Plot revol_util distributions
+par(mfrow=c(1,2))
+ggplot(X, aes(revol_util))+geom_density(bw=0.5)+xlim(0,200)
+```
+
+```{r, echo=TRUE}
+ggplot(mice_output, aes(revol_util))+geom_density(bw=0.5)+xlim(0,200)
+```
+Since the two graphs are similar, it is safe to use the imputed data to fill the NAs
+
+```{r, echo=TRUE}
+X$revol_util <- mice_output$revol_util
+# Show new number of missing values
+sum(is.na(X$revol_util))
+```
+However, I realise that imputation takes a long time for this big dataset and it will not contribute too much for the model if I sacrifice running time and use only one variable to predict the NAs in another variable. Besides, by examining the summary of the other variables, I noticed that many variables have almost half of their data missing, so it may be too risky to impute values for these variables. 
+
+decisions to exclude some variables from the final model
+```{r, echo=TRUE}
+#create a new dataframe for model testing
+#variables that are not important: member_id,emp_title, url
+Y<-X[,!names(X)%in%c("member_id","emp_title", "url")]
+```
+
+variables needed further research, but not in this discussion(more discussion in evaluation): desc(natural language analytics), title(correlated with purpose)
+```{r, echo=TRUE}
+Y<-Y[,!names(Y)%in%c("desc","title")]
+```
+
+variables that may introduce confounding effect:
+"out_prncp","out_prncp_inv","total_pymnt","total_pymnt_inv","total_rec_prncp","total_rec_int","recoveries","collection_recovery_fee","last_pymnt_amnt","last_pymnt_d","next_pymnt_d"
+
+These variables will affect model building process and they does not contribute much to our understanding of the study as a whole. 
+For example, if "recoveries">0, it means that the status is likely to be charged off. It does not help with our analysis because we certainly know that recoveries will only exist if payment was not made in time. Therefore, I discard these variables from the model. 
+
+```{r, echo=TRUE}
+Y<-Y[,!names(Y)%in%c("issue_d","out_prncp","out_prncp_inv","total_pymnt","total_pymnt_inv"
+                     ,"total_rec_prncp","total_rec_int","recoveries",
+                     "collection_recovery_fee","last_pymnt_amnt","last_pymnt_d","next_pymnt_d")]
+```
+
+remove "joint" appliation type, as well as variables related to joint application:
+"annual_inc_joint","dti_joint","verification_status_joint"  
+
+rationale: I found out that there are only 511 cases of "joint" application type, which is a very small sample as compared to "individual". Instead of creating a model for both types, I feel that it gives more accurate result to construct a model for "individual" since there are enough samples. As for "joint", maybe we can try to collect more sample or choose less cases from "individual". For this study, I will only focus on "individual".
+```{r, echo=TRUE}
+Y<-Y[Y$application_type=="INDIVIDUAL",]
+Y<-Y[,!names(Y)%in%c("annual_inc_joint","dti_joint","verification_status_joint")]
+```
+
+drop variables which are subsituted by new variables: earliest_cr_line, last_credit_pull_d
+```{r, echo=TRUE}
+Y<-Y[,!names(Y)%in%c("earliest_cr_line", "last_credit_pull_d")]
+```
+
+variables which are highly correlated: "funded_amnt"
+```{r, echo=TRUE}
+Y<-Y[,!names(Y)%in%("funded_amnt")]
+```
+
+factorise some variables:
+```{r, echo=TRUE}
+factor_vars <-
+  c("delinq_2yrs","inq_last_6mths","mths_since_last_delinq","mths_since_last_record",
+    "open_acc","pub_rec","total_acc","mths_since_last_major_derog","policy_code","acc_now_delinq",
+    "open_acc_6m","open_il_6m", "open_il_12m","open_il_24m", "mths_since_rcnt_il",
+    "open_rv_12m","open_rv_24m" ,"inq_fi","inq_last_12m","months_from_earliest_cr_line",
+    "months_from_last_credit_pull_d")
+
+Y[factor_vars] <- lapply(Y[factor_vars], function(x) as.factor(x))
+```
+
+model building
+```{r, echo=TRUE}
+#separate into training set and testing set
+n_total = length(Y[,1])
+trainindex= sample(1:n_total, 10000)
+testindex= sample(1:n_total, 10000)
+Ytrain<-Y[trainindex,]
+Ynotrain<-Y[-trainindex,]
+Ytest<-Ynotrain[testindex,]
+```
+At first I separate the training set and the testing set equally based on the whole dataset, but afterwards I realised that my laptop simply cannot finish the computation with this many data. So I take a small sample for the purpose of this analysis. 
+
+Xgboosting
+
+I chose Xgboosting because it computes faster and gives good result. 
+
+```{r, echo=TRUE}
+library(xgboost)
+library(readr)
+library(stringr)
+library(caret)
+library(car)
+xgb <- xgboost(data = data.matrix(Ytrain[,-c(1,13)]), #without ID and loan_status
+               label = as.numeric(Ytrain$loan_status)-1, 
+               eta = 0.01,
+               max_depth = 15, 
+               nround=1000, 
+               subsample = 0.5,
+               colsample_bytree = 0.5,
+               seed = 1,
+               eval_metric = "merror",
+               objective = "multi:softmax",
+               num_class = 3,
+               nthread = 3
+)
+
+#evaluate variable importance
+importance <- xgb.importance(feature_names = names(Ytrain[1,-c(1,13)]), model = xgb)
+head(importance,10)
+xgb.plot.importance(importance_matrix = importance)
+```
+
+make prediction on the testing set
+```{r, echo=TRUE}
+xgb.pred = predict(xgb,data.matrix(Ytest[,-c(1,13)]))
+#calculate AUC 
+library(pROC)
+multiclass.roc(Ytest$loan_status, xgb.pred, col="black",
+         lwd=3, print.auc=TRUE,print.auc.y = 0.0, add=TRUE)
+```
+
+The result shows the area under the curve is only 0.5624. It implies that our model is not a strong model in predicting loan status based on the variables selected. There are a few reasons why this is expected.
+
+1. Parameters tuning is not performed yet. We can expect improvements of the model if we choose the optimal parameters, such as learning rate, nrounds, subsamples, maximum depth etc. 
+
+2. We used a very small sample relative to the whole dataset(10000 out of 88XXXX). It is reasonable to say that the sample does not capture the rich complexities of the features in the whole dataset, and therefore it has weak predictive power in the testing sample. 
+
+3. Not much feature engineering has been done. eg: the variables are not accessed against normality assumption, outliers are not examined. 
+
+Evaluation
+During the study of this dataset, I came across several problems and I think these would benefit future analysis if I have time to explore it further.
+
+1. Correlated variables
+There are many correlated variables in this dataset and some of them require tedious processing before we can explore the relationships. For example, "url","desc","purpose","title" all contain information of the purpose of the loan, it will be beneficial to extract these information and compare them for anomalies. 
+
+2. Text analytics
+Text analytics can be applied to "desc" and "url" for insights. "desc" contains description by the loaners themselves, and it may reveal similar pattern for loaners who tend to be in a bad status. 
+
+3. Anomalous data
+I detect many anomalous data during graph plotting. For better analysis we can use some R packages to deal with these anomalies. 
+
+4. There are so many variables in this dataset. It will be reasonable to remove them by applying relavant knowledge from loan business. It is therefore crucial to understand the process before we can remove any variables and perform feature engineering. 
+
+5. The dataset is a big dataset. It is time consuming to perform many analysis and it take up memories exponentially. Maybe we can explore packages like ff, Hadoop and parallel programming to facilitate the process. 
+
+
+
+
+
+

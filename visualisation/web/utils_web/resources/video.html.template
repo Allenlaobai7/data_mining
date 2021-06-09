@@ -1,0 +1,8 @@
+<video width="200px" height="350px" controls="true" preload="none">
+<source src="{{url}}" type="video/mp4" />
+<source src="{{url}}" type="video/ogg" />
+<source src="{{url}}" type="video/webm" />
+<object data="{{url}}" width="200px" height="350px" />
+<embed src="{{url}}" width="200px" height="350px" />
+</object>
+</video>

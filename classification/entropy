@@ -1,0 +1,7 @@
+def calculate_entropy(
+        tag_id_counts):  # https://math.stackexchange.com/questions/395121/how-entropy-scales-with-sample-size
+    counts = tag_id_counts.values()
+    total_counts = float(sum(counts))
+    probs = [float(a) / total_counts for a in counts]
+    score = sum([(-1) * x * math.log(x, 2) / math.log(total_counts, 2) for x in probs])
+    return score

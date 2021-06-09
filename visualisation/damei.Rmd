@@ -1,0 +1,293 @@
+---
+title: "Damei"
+author: "Allen"
+date: "27/05/2017"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+setwd("/Users/Allen/Desktop")
+library(xlsx)
+Damei<-read.xlsx2("damei.xlsx",sheetIndex = 1,header = TRUE)
+Damei<-Damei[Damei$联系人 %in% c("我","yupeiran"),]
+Damei<-droplevels(Damei)
+str(Damei)
+```
+
+Deal with time data, remove records before 11th May 2017, 
+create weekdays, time range，date， time
+change 联系人 to 1&2
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+Damei$时间<-as.POSIXlt(strptime(Damei$时间,"%d/%m/%Y %H:%M"))
+Damei<-Damei[Damei$时间>as.POSIXlt("2017-05-11 23:55:00"),]
+Damei$day<-weekdays(Damei$时间)
+Damei$day<-as.factor(Damei$day)
+Damei$day <- factor(Damei$day,levels(Damei$day)[c(2,6,7,5,1,3,4)])
+
+Damei$hour<-Damei$时间$hour
+
+Damei$timerange<-Damei$hour
+Damei$timerange[Damei$timerange==0 | Damei$timerange==1]<-"0-2"
+Damei$timerange[Damei$timerange==2 | Damei$timerange==3]<-"2-4"
+Damei$timerange[Damei$timerange==4 | Damei$timerange==5]<-"4-6"
+Damei$timerange[Damei$timerange==6 | Damei$timerange==7]<-"6-8"
+Damei$timerange[Damei$timerange==8 | Damei$timerange==9]<-"8-10"
+Damei$timerange[Damei$timerange==10 | Damei$timerange==11]<-"10-12"
+Damei$timerange[Damei$timerange==12 | Damei$timerange==13]<-"12-14"
+Damei$timerange[Damei$timerange==14 | Damei$timerange==15]<-"14-16"
+Damei$timerange[Damei$timerange==16 | Damei$timerange==17]<-"16-18"
+Damei$timerange[Damei$timerange==18 | Damei$timerange==19]<-"18-20"
+Damei$timerange[Damei$timerange==20 | Damei$timerange==21]<-"20-22"
+Damei$timerange[Damei$timerange==22 | Damei$timerange==23]<-"22-24"
+Damei$timerange<-as.factor(Damei$timerange)
+Damei$timerange<-factor(Damei$timerange, levels(Damei$timerange)[c(1,9,10,2:8)])
+
+Damei$time<-strftime(Damei$时间,format = "%H:%M:%S")
+
+Damei$uniqueday<-Damei$时间$mday
+Damei$uniqueday<-as.factor(Damei$uniqueday)
+
+levels(Damei$联系人)<-c(2,1)
+Damei$联系人[Damei$联系人=="我"]<-1
+Damei$联系人[Damei$联系人=="yupeiran"]<-2
+```
+
+create Damei_only dataframe
+```{r, echo= TRUE, message=TRUE, warning=FALSE}
+
+DameiO<-Damei[Damei$联系人==2,]
+DameiO<-droplevels(DameiO)
+DameiO<-DameiO[,-c(2,3)]
+```
+
+## Including Plots
+histogram
+```{r, echo= TRUE}
+library(ggplot2)
+ggplot(DameiO,aes(x=as.numeric(uniqueday)))+
+  geom_histogram(colour="lightblue")+ggtitle("messages by day")
+```
+
+overview
+```{r}
+Dameiplot <- ggplot(DameiO, aes(x = uniqueday, y = timerange))
+Dameiplot + geom_jitter(alpha = 0.5,
+aes(color = uniqueday),
+position = position_jitter(width = 0.2)) + labs(y = "time",x="date") +
+ggtitle("Messages by day") + theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+get alternate dataframe. 
+select pairs and remove extra rows. the pattern is now 121212...(the last message of allen and first message of Damei)
+```{r, echo= TRUE}
+Damei$联系人<-as.factor(Damei$联系人)
+Alternate<-data.frame(联系人=factor(),stringsAsFactors = FALSE)
+number=1
+for (i in 1:(nrow(Damei)-1)){
+  if (Damei$联系人[i]=="1" &Damei$联系人[i+1]=="2"){
+    z<-rbind(Damei[i,],Damei[i+1,])
+    rownames(z)<-c(number,number+1)
+    Alternate<-rbind(Alternate,z)
+    number<-number+2
+  }
+}
+```
+
+find the replying time for all my message
+```{r, echo= TRUE}
+
+for (i in 1:(nrow(Alternate)-1)){
+    Alternate$replytime[i]<-difftime(Alternate$时间[i+1], Alternate$时间[i],units = "mins")
+  }
+
+```
+
+find average replying time
+```{r, echo=TRUE}
+mean(Alternate[Alternate$联系人==1,]$replytime)
+```
+
+identify converstaions
+if next message is within 4 minutes, select these messages. converstaion:121212. conversationD:22222
+```{r, echo= TRUE}
+Alternate$conversation<-NA
+Alternate$conversation[1]<-1
+Alternate$conversation[2]<-1
+conversation=1
+for (i in 4:(nrow(Alternate)-1)){
+   if (Alternate$联系人[i]==2){
+     if (difftime(Alternate$时间[i+2], Alternate$时间[i],units = "mins")<4){
+         if (difftime(Alternate$时间[i], Alternate$时间[i-2],units = "mins")<4){
+         Alternate$conversation[i-1]<-conversation
+         Alternate$conversation[i]<-conversation
+         Alternate$conversation[i+1]<-conversation
+         Alternate$conversation[i+2]<-conversation
+         }else{
+        conversation<-conversation+1
+        Alternate$conversation[i-1]<-conversation
+        Alternate$conversation[i]<-conversation
+        Alternate$conversation[i+1]<-conversation
+        Alternate$conversation[i+2]<-conversation
+         }
+       i=i+4
+    }
+  }
+}
+conversation<-Alternate[!is.na(Alternate$conversation),]
+#get Damei only conversation 
+conversationD<-conversation[conversation$联系人==2,]
+a<-table(conversationD$conversation)
+a<-as.data.frame(a)
+colnames(a)<-c("conversation","count")
+conversationD<-merge(conversationD,a,by = "conversation")
+conversationD$conversation<-as.factor(conversationD$conversation)
+
+#keep only the first row of each conversationD
+conversationR<-conversationD[!duplicated(conversationD$conversation),]
+```
+
+plot conversation against day, boxplot
+```{r  , echo= TRUE}
+conversationplot<-ggplot(conversationR,aes(x=day,y=count))
+conversationplot+geom_boxplot(fill="chartreuse4")+labs(y="Length of conversation")+ggtitle("Conversation by day")+theme(plot.title = element_text(hjust = 0.5))
+```
+
+plot conversation against time range, weekday as color
+```{r  , echo= TRUE}
+conversationplot<-ggplot(conversationR,aes(x=timerange,y=count,color=factor(day)))
+conversationplot + geom_jitter(alpha=0.5,aes(color=day),position=position_jitter(width = 0.2)) + labs(y = "Length of conversation") + ggtitle("Conversation by time") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+plot conversation against day. 
+```{r  , echo= TRUE}
+conversationplot <- ggplot(conversationR, aes(x = day, y = timerange))
+conversationplot + geom_jitter(alpha = 0.5,
+aes(color = day),
+position = position_jitter(width = 0.2)) + labs(y = "Time") +
+ggtitle("Conversation by day") + theme(plot.title = element_text(hjust = 0.5))
+```
+
+Now, lets remove conversations from the main dataset and examine how much time Damei takes to reply a message.
+```{r, echo= TRUE}
+nocon<-Alternate[is.na(Alternate$conversation),]
+nocon1<-nocon[nocon$联系人==1,]
+mean(nocon1$replytime)
+```
+
+remove outlier 
+```{r, echo=TRUE}
+#assume sleeping time = 8 hours +- 1 hour
+nocon2<-nocon1[nocon1$replytime<420,]
+```
+
+```{r  , echo= TRUE}
+summary(nocon2$replytime)
+```
+
+try boxplot
+```{r  , echo= TRUE}
+noconplot<-ggplot(nocon2,aes(x="",y=replytime))
+noconplot+geom_boxplot(fill="chartreuse4")+labs(y="replytime")+ggtitle("Replytime by Shuigui")+theme(plot.title = element_text(hjust = 0.5))
+```
+
+classification on conversation/ no conversation 
+
+identify extract conversationA from conversation dataset. 
+remove duplicates in conversationA
+combine noconversation dataset + conversationA dataset to obtain a combined dataset: AlternateR
+```{r  , echo= TRUE}
+conversationA<-conversation[conversation$联系人==1,]
+a<-table(conversationA$conversation)
+a<-as.data.frame(a)
+colnames(a)<-c("conversation","count")
+conversationA<-merge(conversationA,a,by = "conversation")
+conversationA$conversation<-as.factor(conversationA$conversation)
+
+#keep only the first row of each conversationD
+conversationAR<-conversationA[!duplicated(conversationA$conversation),]
+conversationAR$conversation<-"yes"
+conversationAR<-conversationAR[,-13]
+nocon1$conversation<-"no"
+AlternateR<-rbind(nocon1,conversationAR)
+make.names(AlternateR$conversation,unique = FALSE)
+AlternateR$conversation<-as.factor(AlternateR$conversation)
+levels(AlternateR$conversation)
+```
+
+145 samples, we conduct classification, using 类型，time range and day as predictor variables.
+```{r  , echo= TRUE}
+training = sample(1:145, 100)
+train<-AlternateR[training,]
+test<-AlternateR[-training,]
+Xtrain<-model.matrix(conversation~timerange+day+类型,data=train)
+Xtest<-model.matrix(conversation~timerange+day+类型,data=test)
+ytrain<-as.factor(train[,"conversation"])
+ytest<-as.factor(test[,"conversation"])
+
+#ridge logistic regression
+library(glmnet)
+lambda.grid = 10^seq( -5, 2,length=100)
+ridge.cv = cv.glmnet(Xtrain, ytrain, alpha=0,
+                     type.measure = "mse", nfolds = 10,
+                     lambda = lambda.grid,family="binomial")
+
+prediction.ridge = predict(ridge.cv, newx = Xtest,
+  s = "lambda.min", type="response")
+
+plot.new()
+#plot roc
+library(pROC)
+auc<-roc(ifelse(ytest=="yes",1,0),as.vector(prediction.ridge))
+plot(auc,print.auc=TRUE)
+```
+
+
+try boosting
+```{r  , echo= TRUE}
+library(caret)
+library(gbm)
+boostytrain<-train[,12]
+boostxtrain<-train[,c(4,6,8)]
+boostytest<-test[,12]
+boostxtest<-test[,c(4,6,8)]
+
+objControl<-trainControl(method = "cv",number=3,returnResamp = "none",summaryFunction = twoClassSummary,classProbs = TRUE)
+ObjModel<-train(boostxtrain,boostytrain,method="gbm",trControl = objControl,metric = "ROC",preProcess = c("center","scale"))
+summary(ObjModel)
+```
+
+```{r  , echo= TRUE}
+predictions <- predict(object = ObjModel,boostxtest,type = "prob")
+auc<-roc(ifelse(boostytest=="yes",1,0),predictions[[2]])
+plot(auc,print.auc=TRUE)
+```
+
+Classification for reply time <10 and >10
+```{r }
+boost2ytrain<-train[,11]
+boost2ytrain<-ifelse(boost2ytrain<10,"good","laosy")
+boost2ytrain<-as.factor(boost2ytrain)
+boost2ytest<-test[,11]
+boost2ytest<-ifelse(boost2ytest<10,"good","laosy")
+boost2ytest<-as.factor(boost2ytest)
+boost2xtrain<-train[,c(4,6,8)]
+boost2xtest<-test[,c(4,6,8)]
+
+objControl<-trainControl(method = "cv",number=3,returnResamp = "none",summaryFunction = twoClassSummary,classProbs = TRUE)
+ObjModel2<-train(boost2xtrain,boost2ytrain,method="gbm",trControl = objControl,metric = "ROC",preProcess = c("center","scale"))
+summary(ObjModel2)
+```
+
+```{r  , echo= TRUE}
+predictions2 <- predict(object = ObjModel2,boost2xtest,type = "prob")
+auc2<-roc(ifelse(boost2ytest=="good",0,1),predictions2[[2]])
+plot(auc2,print.auc=TRUE)
+```
+
+
